@@ -24,15 +24,23 @@ A command-line app for downloading Apple Music songs, music videos and post vide
 
 - **Python 3.10 or higher**
 - **Active Apple Music subscription**
-- **Apple Music Cookies** - export your browser cookies in Netscape format while logged in at [Apple Music](https://music.apple.com):
+- **Apple Music cookies** (unless using Wrapper) - export your browser cookies in Netscape format while logged in at [Apple Music](https://music.apple.com):
   - **Firefox**: [Export Cookies](https://addons.mozilla.org/addon/export-cookies-txt)
   - **Chromium**: [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)
+
+The exported file must contain the `media-user-token` cookie for
+`.music.apple.com`. Treat it like a password: do not commit or share it, and
+export a new copy if the session expires.
 
 ### Optional Dependencies
 
 #### Wrapper
 
 Run the [Wrapper v2](https://github.com/glomatico/wrapper-v2) server for wrapper-backed account, playback, and decryption requests. Enable it with `--use-wrapper` or `use_wrapper = true`. Configure wrapper HTTP account/playback calls with `--wrapper-url` or `wrapper_url`, and configure WV2D batch TCP decrypt with `--wrapper-decrypt-host` / `--wrapper-decrypt-port`.
+
+This version of Gamdl requires Wrapper v2; the original Wrapper service is not
+compatible. Follow the Wrapper v2 README for its Docker, Apple native-library,
+and login setup.
 
 gamdl builds a private Rust extension from `gamdl/downloader/ammuxer` as `gamdl._ammuxer`. That native media engine handles wrapper TCP decrypt/reassembly plus MP4/M4A writing and muxing; Python remains responsible for the CLI, downloads, metadata tagging, and high-level orchestration.
 
@@ -41,9 +49,21 @@ The wrapper is recommended when using the `alac` song codec. ALAC can be attempt
 **Note:**
 
 - When using the Wrapper, you'll be asked to insert your credentials to login if you haven't already.
-- Newer wrapper-v2 builds use HTTP JSON for account/playback and WV2D batch TCP port `10020` for decrypt.
+- Gamdl 3.8.4 requires Wrapper v2 HTTP API version `0.0.2` and uses the WV2D batch TCP protocol on port `10020` for decryption by default.
 - Song codecs other than `alac` do not require the wrapper.
 - Cookies can be skipped when using the wrapper.
+
+The default endpoints work when both programs run on the same host. If Wrapper
+v2 runs in another container or on another machine, use reachable HTTP and TCP
+addresses instead of `127.0.0.1`, for example:
+
+```bash
+gamdl --use-wrapper \
+  --wrapper-url http://wrapper-host \
+  --wrapper-decrypt-host wrapper-host \
+  --wrapper-decrypt-port 10020 \
+  URL
+```
 
 #### N_m3u8DL-RE
 
@@ -53,20 +73,147 @@ If the executable is not available in your system PATH, set its location with `-
 
 N_m3u8DL-RE also needs FFmpeg. If the FFmpeg executable is not available in your system PATH, set its location with `--ffmpeg-path` or `ffmpeg_path`.
 
-## 📦 Installation
+## 📦 Setup
 
-1. **Install Gamdl via pip:**
+Gamdl 3.8.4 publishes `cp310-abi3` wheels for CPython 3.10+ on Linux x86-64
+and ARM64 systems with glibc 2.34 or newer. On older glibc systems,
+Alpine/musl, other architectures, or an interpreter without a matching wheel,
+the installer attempts a source build; that path may not be supported by every
+interpreter. Check a glibc-based system with:
 
-   ```bash
-   pip install gamdl
-   ```
+```bash
+uname -m
+getconf GNU_LIBC_VERSION
+```
 
-2. **Set up the cookies file:**
-   - Place the cookies file in the working directory as `cookies.txt`, or
-   - Specify the path using `--cookies-path` or in the config file
+### 1. Install Gamdl
 
-3. **Optional: Set up dependencies** (only if you need the functionality)
-   See the [Optional Dependencies](#optional-dependencies) section to determine which optional tools you need.
+Confirm that Python 3.10 or newer is available:
+
+```bash
+python3 --version
+```
+
+#### pipx (recommended)
+
+Gamdl is a command-line application, so [`pipx`](https://pipx.pypa.io/) is the
+recommended installation method. It keeps Gamdl and its dependencies isolated
+from the operating system's Python installation.
+
+On current Debian and Ubuntu releases:
+
+```bash
+sudo apt update
+sudo apt install pipx
+pipx ensurepath
+pipx install gamdl
+```
+
+Open a new shell after `pipx ensurepath` if the `gamdl` command is not found.
+
+#### Virtual environment
+
+If `pipx` is unavailable, use a virtual environment:
+
+```bash
+sudo apt update
+sudo apt install python3-venv
+
+python3 -m venv "$HOME/.venvs/gamdl"
+. "$HOME/.venvs/gamdl/bin/activate"
+python -m pip install --upgrade pip
+python -m pip install gamdl
+```
+
+Activate the virtual environment again in each new shell before using `gamdl`.
+Do not use `sudo pip` or `--break-system-packages`; many current Linux
+distributions intentionally prevent `pip` from modifying the system Python.
+
+#### Source builds (including PyPI fallback)
+
+When no compatible wheel is available, `pip` and `pipx` automatically attempt
+to build the source distribution. Source builds compile the private
+`gamdl._ammuxer` Rust extension.
+Install your distribution's native build tools first; on Debian and Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install build-essential git python3-dev python3-venv
+```
+
+Install a current stable Rust toolchain using the
+[official Rust installation instructions](https://www.rust-lang.org/tools/install),
+then verify that `rustc` and `cargo` are available:
+
+```bash
+rustc --version
+cargo --version
+
+git clone https://github.com/glomatico/gamdl.git
+cd gamdl
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install .
+python -c 'import gamdl._ammuxer; print("native extension OK")'
+```
+
+Use `python -m pip install -e .` instead for an editable development install.
+After installing the build prerequisites, users installing from PyPI can simply
+rerun `pipx install gamdl` or `python -m pip install gamdl` instead of cloning
+the repository.
+
+### 2. Store the cookies file
+
+Keep the cookie file in a stable, private location:
+
+```bash
+install -d -m 700 "$HOME/.gamdl"
+install -m 600 /path/to/exported-cookies.txt "$HOME/.gamdl/cookies.txt"
+```
+
+Pass it explicitly when running Gamdl:
+
+```bash
+gamdl --cookies-path "$HOME/.gamdl/cookies.txt" URL
+```
+
+Alternatively, set `cookies_path` in the configuration file described below.
+Use an absolute path in the configuration file; shell shortcuts such as `~` and
+`$HOME` are not expanded there. The default `./cookies.txt` path is relative to
+the directory from which Gamdl is run.
+
+### 3. Install optional dependencies
+
+The default `ytdlp` download mode does not need an external executable. See
+[Optional Dependencies](#optional-dependencies) for Wrapper and N_m3u8DL-RE
+setup.
+
+For N_m3u8DL-RE on Linux, use `uname -m` to select the matching `linux-x64` or
+`linux-arm64` release. Make the downloaded binary executable and place it on
+`PATH`, or pass its absolute path with `--nm3u8dlre-path`. Install FFmpeg from
+your distribution when using this mode; on Debian and Ubuntu:
+
+```bash
+sudo apt install ffmpeg
+command -v N_m3u8DL-RE
+command -v ffmpeg
+```
+
+Executable names are case-sensitive on Linux. Use absolute paths rather than
+literal `~` or `$HOME` values when configuring external tools in `config.ini`.
+
+### 4. Verify the installation
+
+```bash
+command -v gamdl
+gamdl --version
+gamdl --help
+```
+
+These commands verify the package and command-line entry point. An authenticated
+download also requires a current cookie file or Wrapper session, writable output
+and temporary directories, and any dependency required by the selected mode.
 
 ## 🚀 Usage
 
@@ -122,7 +269,18 @@ Configure Gamdl using command-line arguments or a config file.
 - Linux: `~/.gamdl/config.ini`
 - Windows: `%USERPROFILE%\.gamdl\config.ini`
 
-The file is created automatically on first run. Command-line arguments override config values.
+The file is created automatically on the first normal run. It is an INI file and
+must contain a `[gamdl]` section. Command-line arguments override config values.
+Use absolute paths, especially for cookies and external tools.
+
+Example Linux configuration:
+
+```ini
+[gamdl]
+cookies_path = /home/your-user/.gamdl/cookies.txt
+output_path = /home/your-user/Music/Apple Music
+temp_path = /home/your-user/.cache/gamdl
+```
 
 ### Configuration Options
 
